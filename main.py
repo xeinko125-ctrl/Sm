@@ -6,6 +6,7 @@ import random
 import re
 import os
 import logging
+import requests
 import libsql_experimental as libsql  # Turso client
 
 # ==========================================
@@ -21,7 +22,17 @@ OWNER_USERNAME = "Sir_Tokegiy"  # @Sir_Tokegiy
 TURSO_URL = os.environ.get('TURSO_DATABASE_URL')
 TURSO_TOKEN = os.environ.get('TURSO_AUTH_TOKEN')
 if not TURSO_URL or not TURSO_TOKEN:
-    raise ValueError("❌ Turso credentials not set! Add TURSO_DATABASE_URL and TURSO_AUTH_TOKEN to secrets.")
+    raise ValueError("❌ Turso credentials not set!")
+
+# Cloudflare KV Config
+CF_ACCOUNT_ID = os.environ.get('CF_ACCOUNT_ID', '')
+CF_KV_NAMESPACE_ID = os.environ.get('CF_KV_NAMESPACE_ID', '')
+CF_API_TOKEN = os.environ.get('CF_API_TOKEN', '')
+CF_KV_URL = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/storage/kv/namespaces/{CF_KV_NAMESPACE_ID}"
+CF_HEADERS = {
+    'Authorization': f'Bearer {CF_API_TOKEN}',
+    'Content-Type': 'application/json'
+}
 
 # Logging setup
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -59,67 +70,118 @@ savage_texts = [
     "ငိုလေမင်းဖေရှေ့မှာငို gpထဲမှာငိုစမ်း ရှက်နေတာဖာသယ်မသားလေးက",
     "ခါကာဘိုရာဇီတောင်ကနေကော့သောင်းထိဖင်ပြေးကုန်းမအေလိုး",
     "အူကြောင်ကြားမလုပ်နဲ့တပည့်ပိတ်ကန်လိုက်လို့ရှေ့သွား ၅ ချောင်းလုံးအကပ်လိုက်ပြုတ်ထွက်ကုန်မယ်",
-    "မင်းရဲ့ စကားလုံးတွေက အားသွင်းထားတာ ကြာလို့ ဖောင်းကြွနေတဲ့ ဘက်ထရီ တစ်လုံးလိုပဲ ဘယ်အချိန်မှာ ပေါက်ကွဲပြီး ကိုယ့်ကိုယ်ကိုယ် ပြန်သတ်မလဲ ဆိုတာကိုပဲ စောင့်ကြည့်နေရတဲ့ အပေါစား ပစ္စည်းတစ်ခုပဲ မင်းဟာ ကောင်းကင်ယံက လျှပ်စီးလက်တာကို မြင်ပြီး တုန်လှုပ်နေတဲ့ တွင်းအောင်း သတ္တဝါ တစ်ကောင်ရဲ့ ကြောက်စိတ်ကို ဆဲဆိုခြင်း ဆိုတဲ့ အသံနဲ့ ဖုံးကွယ်ဖို့ ကြိုးစားနေတာ အတိုင်းသား မြင်နေရတယ် မင်းရဲ့ နှလုံးသားက သံတိုသံစ စုပုံထားတဲ့ နေရာမှာ ကျန်ရစ်ခဲ့တဲ့ သံချေးတက် နာရီ တစ်လုံးလိုပဲ အချိန်နဲ့ အမျှ အသုံးမကျဖြစ်နေတာ အမှန်တရားပဲ",
-    "ငါကရွှံ့ထဲမှာ နစ်နေရင်တောင် တန်ဖိုးမပျက်တဲ့ ပတ္တမြားခဲကြီးတစ်တုံးဆိုရင်မင်းကရွှေရောင်သုတ်ထားပေမဲ့ အနံ့အသက်မကောင်းတဲ့ ရွံနွံ့ တစ်ခုပဲငါ့ရဲ့ flow တေကို မင်းကအတုခိုးပြီး ဝင့်ကြွားချင်ပေမဲ့မင်းရဲ့ မူလဇာတိက ညံ့ဖျင်းလွန်း တော့ ဘယ်လိုမှ ပြင်လို့မရဘူး",
+    "မင်းရဲ့ စကားလုံးတွေက အားသွင်းထားတာ ကြာလို့ ဖောင်းကြွနေတဲ့ ဘက်ထရီ တစ်လုံးလိုပဲ ဘယ်အချိန်မှာ ပေါက်ကွဲပြီး ကိုယ့်ကိုယ်ကိုယ် ပြန်သတ်မလဲ ဆိုတာကိုပဲ စောင့်ကြည့်နေရတဲ့ အပေါစား ပစ္စည်းတစ်ခုပဲ...",
+    "ငါကရွှံ့ထဲမှာ နစ်နေရင်တောင် တန်ဖိုးမပျက်တဲ့ ပတ္တမြားခဲကြီးတစ်တုံးဆိုရင်မင်းကရွှေရောင်သုတ်ထားပေမဲ့ အနံ့အသက်မကောင်းတဲ့ ရွံနွံ့ တစ်ခုပဲ...",
     "ကိတ်ခြောက်စားပြီးစိတ်ခြောက်ခြားနေရင်မင်းမိဘပေးဘု",
     "ခွေးဟောင်လို့လမင်းမနွမ်းခွေးသာပမ်း၏",
     "စောက်ရူးဟိတ်ကောင် ဘယ်ခြေကိုရွေ့ပြီးညာခြေနဲ့အားပြုကိုက်တာလား",
-    "ငါလိုးမသားလေးမင်းရဲ့မသန်မစွမ်းဖစ်နေတဲ့ခန္ဓာကိုယ်ကို ငါရဲ့သံလက်သီးနဲ့နှစ်ချက်လောက်ဆင့်ထိုးပီးအရိုးတေကျိုးကျေသွားအောင်လုပ်ပေးရမလား",
-    "ရိုက်ဖားကြီးငါရိုက်တာခံနေရတာလားရိုက်ဖားခိုင်းနွားငါခိုင်းရင်တန်းလုပ်အခုဆဲလေရိုက်ဖားလေးဘာစောက်သုံးကျ၁ပြီး၂လာတာပဲသိတဲ့ရွာသားလားဘောမ",
-    "မင်းအမေစပတ်ကိုမော်တာတပ်လိုးပြီးစပိုက်တာမန်းလိုကြိုးဆွဲလိုးမှာငါလိုးမဖာသယ်မဖာအိုမဖာပျက်မခွေးမနွားမသား",
-    "အူကြောင်ကြားမလုပ်နဲ့တပည့်ပိတ်ကန်လိုက်လို့ရှေ့သွား ၅ ချောင်းလောက်အထစ်လိုက်ပြုတ်ကျကုန်မယ်",
-    "မင်းကအခြောက်လားစောက်စကားပြောတာအိညောင်အိညောင်နဲ့ငါလိုးမဂေး",
-    "ဒီထပ်နည်းနည်းပိုအားထည့်ကိုက်နိုင်ရင် လည်ပတ်အသစ်ဝယ်ပေးမယ်",
-    "မင်းမေစဖုတ်ကို ခရမ်းလွန်ရောင်ခြည်နဲ့ မီးကင်ပစ်မယ်ခွေးမသား",
     "အိမ်ကခွေးလီးနဲ့ပေးတီးလိုက်လို့မျက်ဖြူပါစိုက်နေမယ် မအေလိူး"
 ]
 
 # ==========================================
-# 🗄 DATABASE (TURSO)
+# 🗄 DOUBLE DATABASE (Turso + Cloudflare KV)
 # ==========================================
 db_lock = threading.Lock()
+active_spams = {}  # Memory-based spam control
 
-def get_conn():
+# --- Cloudflare KV Helpers ---
+def cf_kv_get(key):
+    if not CF_API_TOKEN:
+        return None
+    try:
+        res = requests.get(f"{CF_KV_URL}/values/{key}", headers=CF_HEADERS, timeout=5)
+        return res.text if res.status_code == 200 else None
+    except:
+        return None
+
+def cf_kv_put(key, value):
+    if not CF_API_TOKEN:
+        return
+    try:
+        requests.put(f"{CF_KV_URL}/values/{key}", headers=CF_HEADERS, data=str(value), timeout=5)
+    except:
+        pass
+
+def cf_kv_delete(key):
+    if not CF_API_TOKEN:
+        return
+    try:
+        requests.delete(f"{CF_KV_URL}/values/{key}", headers=CF_HEADERS, timeout=5)
+    except:
+        pass
+
+# --- Turso Helpers ---
+def get_turso_conn():
     return libsql.connect(database=TURSO_URL, auth_token=TURSO_TOKEN)
 
 def init_db():
     with db_lock:
-        conn = get_conn()
+        conn = get_turso_conn()
         conn.execute("CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT)")
         conn.commit()
         conn.close()
 
 init_db()
 
+# --- Unified DB Functions with Fallback ---
 def get_kv(key):
-    with db_lock:
-        conn = get_conn()
-        cur = conn.execute("SELECT value FROM kv WHERE key = ?", (key,))
-        row = cur.fetchone()
-        conn.close()
-        return row[0] if row else None
+    # 1. Try Turso
+    try:
+        with db_lock:
+            conn = get_turso_conn()
+            cur = conn.execute("SELECT value FROM kv WHERE key = ?", (key,))
+            row = cur.fetchone()
+            conn.close()
+            if row:
+                return row[0]
+    except Exception as e:
+        logger.warning(f"Turso get_kv failed, trying Cloudflare KV: {e}")
+
+    # 2. Fallback to Cloudflare KV
+    result = cf_kv_get(key)
+    if result is not None:
+        return result
+    return None
 
 def set_kv(key, value):
-    with db_lock:
-        conn = get_conn()
-        conn.execute("INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)", (key, str(value)))
-        conn.commit()
-        conn.close()
+    value_str = str(value)
+    # Save to Turso
+    try:
+        with db_lock:
+            conn = get_turso_conn()
+            conn.execute("INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)", (key, value_str))
+            conn.commit()
+            conn.close()
+    except Exception as e:
+        logger.warning(f"Turso set_kv failed: {e}")
+    # Backup to Cloudflare KV
+    cf_kv_put(key, value_str)
 
 def delete_kv(key):
-    with db_lock:
-        conn = get_conn()
-        conn.execute("DELETE FROM kv WHERE key = ?", (key,))
-        conn.commit()
-        conn.close()
+    try:
+        with db_lock:
+            conn = get_turso_conn()
+            conn.execute("DELETE FROM kv WHERE key = ?", (key,))
+            conn.commit()
+            conn.close()
+    except:
+        pass
+    cf_kv_delete(key)
 
 def list_keys(prefix):
-    with db_lock:
-        conn = get_conn()
-        cur = conn.execute("SELECT key FROM kv WHERE key LIKE ?", (prefix + '%',))
-        rows = cur.fetchall()
-        conn.close()
-        return [row[0] for row in rows]
+    # Turso first, then merge with Cloudflare? For simplicity, use Turso only for listing
+    # because listing in Cloudflare KV requires pagination and is slower.
+    # This function is used for /knowall and /add broadcast, fallback to empty list on error.
+    try:
+        with db_lock:
+            conn = get_turso_conn()
+            cur = conn.execute("SELECT key FROM kv WHERE key LIKE ?", (prefix + '%',))
+            rows = cur.fetchall()
+            conn.close()
+            return [row[0] for row in rows]
+    except Exception as e:
+        logger.warning(f"Turso list_keys failed: {e}")
+        return []
 
 def get_all_savage_texts():
     custom = get_kv("custom_texts")
@@ -164,7 +226,7 @@ def send_media(chat_id, media_type, file_id, caption=None, parse_mode=None):
         return None
 
 # ==========================================
-# 🔥 SPAM LOOP (Speed-controlled)
+# 🔥 SPAM LOOP (Memory-based, immune to DB errors)
 # ==========================================
 def spam_loop_worker(chat_id, target_id):
     try:
@@ -177,9 +239,10 @@ def spam_loop_worker(chat_id, target_id):
     if not all_texts:
         all_texts = savage_texts
 
+    active_spams[chat_id] = target_id  # Memory store
+
     while True:
-        active_target = get_kv(f"spam_target_{chat_id}")
-        if not active_target or active_target != str(target_id):
+        if chat_id not in active_spams or active_spams[chat_id] != target_id:
             break
 
         text = random.choice(all_texts)
@@ -192,10 +255,15 @@ def spam_loop_worker(chat_id, target_id):
             if "429" in err:
                 time.sleep(2)
             elif "403" in err or "400" in err:
-                delete_kv(f"spam_target_{chat_id}")
+                active_spams.pop(chat_id, None)
+                try:
+                    delete_kv(f"spam_target_{chat_id}")
+                except:
+                    pass
                 break
+            else:
+                time.sleep(1)
 
-        # Speed check – speed "0" means no sleep (fastest)
         delay_str = get_kv("spam_speed") or "0"
         if delay_str == "0":
             continue
@@ -219,7 +287,7 @@ def handle_start(message):
     else:
         set_kv(f"group_{chat_id}", message.chat.title or "Group")
 
-    if is_auth(user_id):
+    if user_id == OWNER_ID:  # Owner ကို DB မမေးဘဲ ချက်ချင်းဖြေ
         welcome_txt = (
             "ကြိုဆိုပါတယ် bot ကိုအသုံး​ပြု့ရန် admin full permission ပေးထားပါ\n\n"
             "📌 <b>Commands များ</b>\n"
@@ -231,6 +299,10 @@ def handle_start(message):
             "👑 Owner - @Sir_Tokegiy"
         )
         bot.send_message(chat_id, welcome_txt, parse_mode="HTML")
+        return
+
+    if is_auth(user_id):
+        bot.send_message(chat_id, "✅ Bot သုံးခွင့်ရှိပါတယ်။ /help နဲ့ ကြည့်ပါ။", parse_mode="HTML")
     else:
         mention = f'<a href="tg://user?id={user_id}">{message.from_user.first_name}</a>'
         msg_text = (
@@ -253,7 +325,7 @@ def handle_help(message):
         "• /listtext - ဆဲစာသားစာရင်း\n"
         "• ရပ်တော့ - ဆဲနေသည်ကိုရပ်ရန်\n\n"
         "📌 <b>Group စီမံချက်များ</b>\n"
-        "• /setwelcome [စာသား] - Welcome Message (စာသား သို့မဟုတ် media ကို reply လုပ်)\n"
+        "• /setwelcome [စာသား] - Welcome Message\n"
         "• /setgoodbye [စာသား] - Goodbye Message\n"
         "• /deleteword add/remove/list [စာလုံး]\n"
         "• /deletecmd on/off - '/' command ဖျက်ခြင်း\n\n"
@@ -343,9 +415,10 @@ def handle_auth_commands(message):
             if target_id == OWNER_ID:
                 bot.send_message(chat_id, "ငါ့ရဲ့ဖန်ဆင်းရှင်ကို Spamလုပ် ဖို့မင်းမှာအဲ့လောက်သတ္တိတွေရှိနေသလားခွေးမသား")
             else:
-                if get_kv(f"spam_target_{chat_id}"):
+                if chat_id in active_spams:
                     bot.send_message(chat_id, "⚠️ လက်ရှိ Spamနေတဲ့ Target ရှိနေပါတယ်။ 'ရပ်တော့' အရင်လုပ်ပါ။")
                     return
+                # DB မှာလည်း သိမ်း (Turso/Cloudflare)
                 set_kv(f"spam_target_{chat_id}", target_id)
                 set_kv(f"spam_owner_{chat_id}", user_id)
                 bot.send_message(chat_id, f"🔥 Target {target_id} ကို စတင် ဖင်လိုးပါပြီ...")
@@ -483,12 +556,12 @@ def handle_stop(message):
         bot.send_message(chat_id, "⚠️မင်းကဘာကောင်မို့လို့ငါ့ကိုလာရပ်ခိုင်းနေတာလည်း ငါ့ကိုခိုင်းထားတာမင်းမဟုတ်ဘူး ငါ့ကိုမင်းစောက်ဆင့်နဲ့လာရပ်လို့မရဘူးခွေးမသား")
         return
 
-    active_target = get_kv(f"spam_target_{chat_id}")
-    if active_target:
+    if chat_id in active_spams:
         spam_owner = get_kv(f"spam_owner_{chat_id}")
         if str(user_id) == str(spam_owner) or user_id == OWNER_ID:
+            active_spams.pop(chat_id, None)
             delete_kv(f"spam_target_{chat_id}")
-            bot.send_message(chat_id, "✅ဆရာကြီး ပြောတဲ့အတိုင်းရပ်လိုက်ပါပီ ဟိုခွေးသားတွေဆရာကြီးကို​ရိုသေစမ်းပါ")
+            bot.send_message(chat_id, "✅ဆရာကြီး ပြောတဲ့အတိုင်းရပ်လိုက်ပါပီ")
         else:
             bot.send_message(chat_id, "⚠️ မင်း Lock လုပ်ထားတာ မဟုတ်တဲ့အတွက် ရပ်လို့မရပါဘူး။")
     else:
@@ -587,13 +660,12 @@ def handle_message_filters(message):
             bot.delete_message(chat_id, message.message_id)
             mention = f'<a href="tg://user?id={user_id}">{message.from_user.first_name}</a>'
             group_name = message.chat.title or "ဒီ Group"
-            warning = bot.send_message(
+            bot.send_message(
                 chat_id,
                 f"🚫{mention}ရေ {group_name}ထဲမှာ link လာမချနဲ့။\n"
                 f"link ချချင်ရင် အုံနာနဲ့ Admin တွေဆီ ခွင့်တောင်းပါ။✅",
                 parse_mode="HTML"
             )
-            
             return
         except Exception as e:
             logger.error(f"Link protection error: {e}")
@@ -647,11 +719,9 @@ def handle_speed_callback(call):
 # ==========================================
 # 🚀 START BOT (POLLING)
 # ==========================================
-logger.info("bot run နေပါပီ telegram တွင်သွားစမ်းပါ✅...")
+logger.info("bot run နေပါပီ✅...")
 try:
     bot.delete_webhook()
 except:
     pass
-
-
 bot.infinity_polling(timeout=10, long_polling_timeout=5)
